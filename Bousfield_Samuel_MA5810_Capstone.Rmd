@@ -1,0 +1,341 @@
+---
+title: "MA5810 Capstone Project - Using Machine Learning Methodologies to Predict Heart Disease"
+author: "Samuel Bousfield"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r libraries_and_data, include=FALSE}
+library(tidyverse)
+library(dbscan)
+library(caret)
+library(stats)
+library(factoextra)
+library(cluster)
+library(Hmisc)
+library(corrplot)
+library(ggcorrplot)
+library(psych)
+library(GGally)
+library(e1071)
+library(ROCR)
+library(ggplot2)
+library(paran)
+library(FactoMineR)
+
+setwd("C:/Users/sbous/OneDrive/ASUS Zenbook Pro Duo Folders/Master of Data Science/Introduction to Data Mining/Assessment 3")
+
+heart.disease <- read_csv("heart_statlog_cleveland_hungary_final.csv")
+
+#set correct datatypes for variables
+heart.disease$age <- as.numeric(heart.disease$age)
+heart.disease$sex <- as.factor(heart.disease$sex)
+heart.disease$`chest pain type` <- as.factor(heart.disease$`chest pain type`)
+heart.disease$`resting bp s` <- as.numeric(heart.disease$`resting bp s`)
+heart.disease$cholesterol <- as.numeric(heart.disease$cholesterol)
+heart.disease$`fasting blood sugar` <- as.factor(heart.disease$`fasting blood sugar`)
+heart.disease$`resting ecg` <- as.factor(heart.disease$`resting ecg`) 
+heart.disease$`max heart rate` <- as.numeric(heart.disease$`max heart rate`)
+heart.disease$`exercise angina` <- as.factor(heart.disease$`exercise angina`)
+heart.disease$oldpeak <- as.numeric(heart.disease$oldpeak)
+heart.disease$`ST slope` <- as.factor(heart.disease$`ST slope`)
+heart.disease$target <- as.factor(heart.disease$target)
+
+#select only numeric values for certain methodologies
+numeric.heart.disease <- heart.disease[c(1,4,5,8,10,12)]
+```
+
+# 1. LDA, QDA and/or Naive Bayes classification
+
+## Assumptions
+
+### LDA Assumptions:
+
+1)  response variable is categorical
+
+2)  predictor variables are normally distributed 3) predictor variables have same variance
+
+### QDA Assumptions:
+
+1)  response variable is categorical
+
+2)  predictor variables are normally distributed
+
+#### Assumption 1 - Categorical Response Variable
+
+Response variable (target) is a binary category. Not all features are numeric, therefore to produce LDA or QDA, only some of the features can be used: Age, resting bp s, cholesterol, max heart rate and oldpeak.
+
+#### Assumption 2 - Normality
+
+```{r Check_Normality}
+#Make Q-Q Plots of all numeric features
+numeric_features <- c("age", "resting bp s", "cholesterol", "max heart rate", "oldpeak")
+for (feature in numeric_features){
+  qqnorm(heart.disease[[feature]], main=c("Q-Q plot of ", feature))
+  qqline(heart.disease[[feature]])
+}
+
+#Shapiro-wilk test
+for (feature in numeric_features){
+  x <- shapiro.test(heart.disease[[feature]])
+  print(feature)
+  print(x)
+}
+```
+
+These results prove that the data is not normally distributed. The plots show, These results reject the use of Linear Discriminant Analysis and Quadratic Discriminant Analysis on this dataset.
+
+#### Assumption 3 - Equality of Variances
+
+```{r Check_Variance}
+#use Bartlett test on numeric columns
+bartlett.test(numeric.heart.disease[1:5])
+```
+
+The results of the Bartlett test (p \<2.2e-16), rejects the null hypothesis (no difference in variances between groups), thus proving that the predictor variables do not have equal variances. Along with Assumption 2: Normality, this rejects the use of Linear Discriminant Analysis on this dataset.
+
+### Naive Bayes Classifier (NBC) Assumptions :
+
+#### 1) Independence of features
+
+```{r Independence, fig.height=10}
+corr_matrix <- cor(numeric.heart.disease[1:5])
+ggcorrplot(corr_matrix, type = "lower", lab=TRUE, title = "Correlation Plot of Heart Disease (numeric features)")
+pairs.panels(heart.disease[1:11])
+```
+
+The correlation plot and pair plots show the max correlation coefficient is 0.52, between the "oldpeak" and "ST slope" variables. Anything above 0.5 or below -0.5 could be considered a relationship. Although a value this low is not conclusive evidence of non-independence of these variables, and the NBC typically exhibits good performance against violations of this assumption.
+
+#### 2) Equality of features
+
+To perform a Naive Bayes Classifier, the assumption is that all variables have an equal effect on the outcome of the model. It can be assumed that these features will have an equal effect on the outcome.
+
+Thus with both assumptions met, an NBC for this dataset will be calculated.
+
+```{r Apply_NBC_Model}
+#Split data into training and test data. 80% training, 20% test
+set.seed(1)
+samples <- createDataPartition(numeric.heart.disease$target, p=0.8, list=FALSE)
+train.heart.disease <- numeric.heart.disease[samples,]
+test.heart.disease <- numeric.heart.disease[-samples,]
+
+#implement classifier
+NBC.heart.disease <- naiveBayes(target ~ ., data=train.heart.disease)
+
+#view confusion matrix on test data
+confusionMatrix(predict(NBC.heart.disease, newdata=test.heart.disease), factor(test.heart.disease$target))
+```
+
+Viewing the confusion matrix for the application of the NBC against the test data, it is evident that this model provides good performance, with an accuracy of 0.7764, with industry standards being between 0.7 and 0.9. This value indicates the model does not suffer from over-fitting, and thus will be applicable to other data sets which utilise the same features. Examining the prediction results, and the sensitivity (true normal patient) and the specificity (true heart disease patient), the model is slightly better at predicting the presence of heart disease (0.7920) than 'normal' (0.7589).
+
+It is important to note that these values will change depending on the specific partitioning of the training and test sets.
+
+# 2. Logistic Regression classifiers and/or KNN for classification/regression
+
+Given the strong performance
+
+## All Features Models
+
+```{r Training_and_Testing logistic regression and KNN for classification, warning=FALSE}
+#split data into training and test data. 80% training, 20% test
+set.seed(1)
+samples <- createDataPartition(heart.disease$target, p=0.8, list=FALSE)
+train.heart.disease <- heart.disease[samples,]
+test.heart.disease <- heart.disease[-samples,]
+
+#log model training
+glm.model <- train(form = `target` ~., data=train.heart.disease, method="glm")
+summary(glm.model)
+glm.model
+#knn model training
+knn.model <- train(form=`target`~., data=train.heart.disease, method="knn")
+summary(knn.model)
+knn.model
+
+#confusion matrices
+print("Confusion Matrix - GLM Model")
+confusionMatrix(predict(glm.model, newdata=test.heart.disease), factor(test.heart.disease$target))
+print("Confusion Matrix - KNN Model")
+confusionMatrix(predict(knn.model, newdata=test.heart.disease), factor(test.heart.disease$target))
+```
+
+Examining the results of the glm model, it is evident that not all features are as important in determining the outcome. To further improve model accuracy, only the features with a p-value of <0.05 will be used. These features are "sex", "chest pain type", "cholesterol", "fasting blood sugar", "exercise angina" and "oldpeak". The high p-values in the ST slope variable indicate multicollinearity and thus is also likely to be a significant feature.
+
+## Significant Features Models
+
+```{r Significant_Features_Models}
+#split data into training and test data. 80% training, 20% test
+set.seed(1)
+samples <- createDataPartition(heart.disease$target, p=0.8, list=FALSE)
+train.heart.disease <- heart.disease[samples,]
+test.heart.disease <- heart.disease[-samples,]
+
+#train models
+glm.model.sig <- train(form = `target`~`sex`+`chest pain type`+`cholesterol`+`fasting blood sugar`+`exercise angina`+`oldpeak`+`ST slope`, data=train.heart.disease, method="glm")
+summary(glm.model.sig)
+glm.model.sig
+
+
+
+knn.model.sig <-train(form = `target`~`sex`+`chest pain type`+`cholesterol`+`fasting blood sugar`+`exercise angina`+`oldpeak`+`ST slope`, data=train.heart.disease, method="knn")
+knn.model.sig
+
+print("Confusion Matrix - Significant Features GLM Model")
+confusionMatrix(predict(glm.model.sig, newdata=test.heart.disease), factor(test.heart.disease$target))
+print("Confusion Matrix - Significant Features KNN Model")
+confusionMatrix(predict(knn.model.sig, newdata=test.heart.disease), factor(test.heart.disease$target))
+```
+
+These new models, only utilising the significant features from the original glm model, have changed the models accuracy. In the case of the glm models, the accuracy has slightly decreased from 0.8439 on the original model to 0.8354 in the new model.
+
+However, the KNN model has increased in accuracy. In the original model the accuracy is 0.7046, in the model using only significant features the accuracy is 0.7468.
+
+Comparing the confusion matrices where the model is applied to the testing data, in the case of the knn model, the accuracy increases from 0.7046 in the original model, to 0.7468 in the model containing only the significant features. Likewise, there is an increase in the glm model accuracy, from 0.8101 to 0.8228. However, whilst there is an increase in the accuracy of both models when only the significant (p \<0.05) features are used. The knn model is clearly the lesser of the two when predicting the presence of heart disease.
+
+As with the NBC model, it is important to note that these values will change depending on the specific partitioning of the training and test sets.
+
+# 3.Principal Component Analysis (PCA)
+
+As the glm model was the better of the two (glm vs knn), and the glm model using only significant features was the best of the four models examined, this be the one carried forward. In an attempt to provide a reduction to the dimensionality in this model, PCA will be utilised.
+
+## Principal Component Generation
+
+```{r PCA Analysis}
+#Calculate Principal Components
+PCA.hd <- prcomp(numeric.heart.disease[1:5], scale = TRUE)
+#Reverse signs
+PCA.hd$rotation <- PCA.hd$rotation*-1
+#view Principal components
+PCA.hd$rotation
+#reverse signs of scores
+PCA.hd$x <- PCA.hd$x*-1
+#view head of scores
+#head(PCA.hd) #Commented out to prevent output in RMarkdown file
+
+
+#calculate total variance explained by each principal component
+explained_variance <- PCA.hd$sdev^2/ sum(PCA.hd$sdev^2)
+explained_variance
+
+#scree plot
+qplot(c(1:5), explained_variance) + 
+  geom_line() + 
+  xlab("Principal Component") + 
+  ylab("Variance Explained") +
+  ggtitle("Scree Plot") +
+  ylim(0, 1)
+```
+
+Examining the scree plot, and explained variance it is evident that there is no clear "elbow" at which to choose the number of Principal Components. Therefore, the Principal Components will be examined according to the Kaiser Rule and Horn's Parallel Analysis. The Kaiser rule examines the Principal components will be examined for those with an eigenvalue of \>1, which indicates a Principal Component that performs better than an individual variable. Horn's parallel analysis compares the generated eigenvalues to a simulated set of eigenvalues, to determine the number of Principal Components to keep.
+
+## Principal Component Selection
+
+```{r Kaiser_Rule}
+PCA.hd2 <- PCA(numeric.heart.disease[1:5])
+summary(PCA.hd2, ncp=4)
+fviz_screeplot(PCA.hd2)
+```
+
+```{r Horns_Parallel_Analysis}
+para.heart.disease <- fa.parallel(numeric.heart.disease[1:5])
+para.heart.disease
+```
+
+The results from both the Kaiser Rule and Horn's Parallel Analysis indicate that two Principal Components should be kept. Therefore the GLM and KNN models will be generated using two Principal Components.
+
+## PCA Models
+
+```{r PCA models of dataset}
+set.seed(1)
+#bind PCA columns to dataset
+PC.heart.disease <- cbind(heart.disease, PCA.hd$x[,1:5])
+#split data into training (80%) and test (20%) datasets
+samples <- createDataPartition(PC.heart.disease$target, p=0.8, list=FALSE)
+train.PC <- PC.heart.disease[samples,]
+test.PC <- PC.heart.disease[-samples,]
+
+#test models on Principal Components
+glm.model.pca <- train(form = `target`~`PC1`+`PC2`, data=train.PC, method="glm")
+knn.model.pca <- train(form = `target`~`PC1`+`PC2`, data=train.PC, method="knn")
+knn.model.pca
+
+
+#confusion matrices
+print("Confusion Matrix - Principal Component GLM Model")
+confusionMatrix(predict(glm.model.pca, newdata=test.PC), factor(test.PC$target))
+print("Confusion Matrix - Principal Component KNN Model")
+confusionMatrix(predict(knn.model.pca, newdata=test.PC), factor(test.PC$target))
+```
+
+The output of the confusion matrices using Principal Components on the test data, the accuracy of the GLM model is is 0.7046, and the accuracy of the KNN model is 0.7215. This is somewhat expected, as the GLM algorithm does well with high dimensionality and the KNN algorithm does well with low dimensionality. Thus when compared to the models with all features and significant features, the GLM models did better than the KNN models, but when the number of features was reduced using PCA, the KNN model did better than the GLM model.
+
+However it is important to note, that the difference in accuracy is only 0.0169 (1.69%), and both models are greater than 70% accurate. This means that both models using Principal Components provide good accuracy according to industry standards. It is also important to note that the exact values that this model provides may change with a different partition of the training and test data.
+
+# 4. Cluster Analysis
+
+With the use of the Naive Bayes Classifier, and the classification/regression models (glm/knn, glm/knn with significant features, glm/knn with Principal Components), the goal was to examine the data to discover a classification methodology of whether a patient has heart disease or not, and this somewhat succeeded, the best model, glm with significant features returned a model that classified patients with approximately 82% accuracy. Interestingly, while the data contains a binary classification (normal or heart disease), the knn models found further clusters within the data. In the original model, and PC models k = 9, and in the significant figures model, k=5.
+
+It is important for the best patient outcomes to discover whether these further clusters indicate differences in normal indicators vs differences in heart disease indicators or whether these clusters could be indicative of a state where heart disease is not yet present, but is likely.
+
+Thus cluster analysis will be performed. Prior to choosing a clustering methodology, two factors must be considered. The first, is that the cluster size and shapes are unknown. The second is that ;asfjlkafjlkasfdjajla;fd
+
+## Optimal k value
+
+```{r k means clustering, discover optimal k}
+#SSE 
+set.seed(0)
+SSE <- rep(0, 10)
+for (k in 1:10){
+  km.out <- kmeans(x = heart.disease, centers = k, nstart = 10)
+  SSE[k] <- km.out$tot.withinss
+}
+plot(1:10, SSE, xlab="k", ylab="SSE", type = "b")
+
+#SWC to get optimal k
+set.seed(1)
+k.values <- 2:10
+avg_sil <-function(k){
+  km.res <- kmeans(heart.disease, centers = k, nstart = 25)
+  ss <- silhouette(km.res$cluster, dist(heart.disease))
+  mean(ss[,3])}
+avg_sil_values <- map_dbl(k.values, avg_sil)
+plot(k.values, avg_sil_values, type = "b", pch = 19)
+```
+
+An examination for the elbow of the SSE graph appears to be at either 2, or 3. The decrease between 2 and 3 is much more stark than the decrease between 3 and 4. This is indicative that the optimal k=2. To confirm, the Silhouette Width Criterion (SWC) has been calculated. The SWC confirms the optimal value of k is 2. At this point, the obvious assumption is that these clusters are indicative of the target value (0 = normal, 1 = heart disease). Thus to confirm this clustering technique will be implemented and examined for this relationship.
+
+## K-means Clustering Implementation
+
+```{r implement k means clustering}
+#scale data
+scaled.hd <- data.frame(scale(numeric.heart.disease[1:5]))
+scaled.hd <- cbind(scaled.hd, heart.disease$target)
+names(scaled.hd)[names(scaled.hd)=="heart.disease$target"] <- "target"
+#split data into training and test data. 80% training, 20% test
+#set.seed(1)
+#samples <- createDataPartition(scaled.hd$target, p=0.8, list=FALSE)
+#train.scaled <- scaled.hd[samples,]
+#test.scaled <- scaled.hd[-samples,]
+
+km.out <- kmeans(x = scaled.hd[1:5], centers = 2, nstart = 20)
+hd.clustered <- data.frame(scaled.hd, cluster=factor(km.out$cluster))
+km.out
+table(km.out$cluster, scaled.hd[[6]])
+```
+
+## K-means Clustering Visualisation
+
+```{r K-means Visualisation}
+fviz_cluster(km.out, data=scaled.hd[1:5], geom = "point", shape = 20)+
+  geom_point(aes(shape=scaled.hd$target, color=as.factor(km.out$cluster)))+
+  labs(title = "Clusters and Heart Disease Status", shape = "Heart Disease Status")
+```
+Examining the visualisation of the clustering, the k-means clustering appears to be effective. The visualisation shows two clusters with very little overlap between the two. However these clusters do not describe well the response variable (target, 0 = normal, 1 = heart disease). Examining the table of the cluster classification vs the target variable, approximately 20-30% of the observations do not belong to the cluster containing the majority of the observations with the target. In addition, the total variance of the dataset explained by the clustering can be determined by examining the results of the "Within cluster sum of squares by cluster". This value is 23.1%, which implies that the clustering does not provide a significant explanation of the response variable, and thus should not be used as a predictor of whether a patient has heart disease.
