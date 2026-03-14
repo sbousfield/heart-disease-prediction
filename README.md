@@ -126,6 +126,7 @@ With 84% accuracy, the logistic regression model shows promise for:
 - Risk stratification in preventive cardiology
 - Identifying high-risk patients for further testing
 
-## License
+## Note
 
-MIT License
+This project was completed as part of my Master of Data Science program (2023).  
+README documentation was drafted with AI assistance.
